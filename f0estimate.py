@@ -1,9 +1,17 @@
+from __future__ import division
 import os
+import argparse
 import numpy as np
 from scikits.audiolab import wavread
 from scipy.signal import get_window
 
 from utilities import nextpow2
+
+# set up command line argument structure
+parser = argparse.ArgumentParser(description='Estimate the pitches in an audio file.')
+parser.add_argument('-fin', '--filein', help='input file')
+parser.add_argument('-fout', '--fileout', help='output file')
+parser.add_argument('-v', '--verbose', help='increase output verbosity', action='store_true')
 
 class F0Estimate:
 
@@ -33,7 +41,7 @@ class F0Estimate:
 
         if 'method' in kwargs:
             self._method = kwargs['method']
-            if self._method != 'iterative' and self._method != 'joint':
+            if self._method != 'iterative':
                 raise ValueError('Unknown estimation method')
         else:
             self._method = 'iterative'
@@ -70,6 +78,10 @@ class F0Estimate:
             x = x.sum(axis=1)/n_channels
 
         X = self._stft(x, fs)
+        # Section 2.1 Spectrally whiten the signal to suppress timbral information
+        Y = self._spectral_whitening(X, fs)
+
+        print Y.shape
 
     def _stft(self, x, fs):
         '''
@@ -82,7 +94,73 @@ class F0Estimate:
         win = get_window(self._window_func, frame_len_samps)
 
         # zero-pad to twice the length of the frame
-        num_points = nextpow2(2*frame_len_samps)
-        X = np.array([np.fft.fft(win*x[i:i+frame_len_samps], num_points)
-                      for i in range(0, len(x)-frame_len_samps, frame_len_samps)])
+        K = int(nextpow2(2*frame_len_samps))
+        X = np.array([np.fft.fft(win*x[i:i+frame_len_samps], K) for i in xrange(0, len(x)-frame_len_samps, frame_len_samps)])
         return X
+
+    def _spectral_whitening(self, X, fs, nu=0.33):
+        '''
+        PARAMETERS
+        ----------
+        nu (float): amount of spectral whitening
+        '''
+
+        K = X.shape[1]
+
+        # calculate centre frequencies c_b (Hz) of the first 30 subbands on the critical-band scale
+        # c_b = 229 * (10^[(b+1)/21.4]-1)
+        # this will effectively suppress all frequencies above 6935.11Hz
+        # calculate one subband below and above the range to get the head and tail
+        # frequencies of the triangle windows
+        c = np.array([229*(10**((b+1)/21.4)-1) for b in range(0,32)])
+        c_bins = np.asarray(np.floor(c*K/fs) + 1, np.int)
+
+        # nyquist rate is half of the number of bins
+        nyquist = K>>1
+
+        # subband compression coefficients -> gamma (K/2,)
+        gamma = np.zeros(nyquist)
+
+        # for each subband
+        for b in range(1,len(c_bins)-1):
+            H = np.zeros(nyquist)
+
+            left = c_bins[b-1]
+            centre = c_bins[b]
+            right = c_bins[b+1]
+
+            # construct the triangular power response for each subband
+            H[left:centre+1] = np.linspace(0, 1, centre - left + 1)
+            H[centre:right+1] = np.linspace(1, 0, right - centre + 1)
+
+            gamma[centre] = np.sqrt((2/K)*np.sum(H*(np.abs(X[:,:nyquist])**2)))**(nu-1)
+    
+            # interpolate between the previous centre bin and the current centre bin
+            gamma[left:centre] = np.linspace(gamma[left], gamma[centre], centre - left)
+
+        # calculate the whitened spectrum. Only need to store half the spectrum for analysis
+        # since the bin energy is symmetric about the nyquist frequency
+        Y = gamma * X[:,:nyquist]
+
+        return Y
+
+if __name__ == '__main__':
+    # parse command line arguments
+    args = parser.parse_args()
+
+    input_path = args.filein
+    if not os.path.exists(input_path):
+        raise ValueError('The input file does not exist')
+
+    output_path = args.fileout
+
+    # check file extensions are correct for this type of conversion
+    _, input_ext = os.path.splitext(input_path)
+    if input_ext != '.wav':
+        raise ValueError('Input path must be a wav file')
+    _, output_ext = os.path.splitext(output_path)
+    if output_ext != '.mei':
+        raise ValueError('Ouput path must have the file extension .mei')
+
+    freq_est = F0Estimate(input_path)
+    freq_est.gen_piano_roll(output_path)
