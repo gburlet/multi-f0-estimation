@@ -74,14 +74,13 @@ class F0Estimate:
 
         # make x mono if stereo
         if x.ndim > 1:
-            n_channels, _ = x.shape
+            _, n_channels = x.shape
             x = x.sum(axis=1)/n_channels
 
         X = self._stft(x, fs)
+
         # Section 2.1 Spectrally whiten the signal to suppress timbral information
         Y = self._spectral_whitening(X, fs)
-
-        print Y.shape
 
     def _stft(self, x, fs):
         '''
