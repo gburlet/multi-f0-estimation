@@ -96,8 +96,13 @@ class F0Estimate:
 
     def _spectral_whitening(self, X, fs, nu=0.33):
         '''
+        Spectrally flatten ('whiten') the given input signal in the frequency domain, 
+        with the intention of supressing timbral information.
+
         PARAMETERS
         ----------
+        X (T, K): frequency domain input signal with T frames and FFT of length K
+        fs: sampling rate of the input signal
         nu (float): amount of spectral whitening
         '''
 
