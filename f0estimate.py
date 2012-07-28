@@ -39,13 +39,6 @@ class F0Estimate:
         else:
             self._max_f0 = 2100
 
-        if 'method' in kwargs:
-            self._method = kwargs['method']
-            if self._method != 'iterative':
-                raise ValueError('Unknown estimation method')
-        else:
-            self._method = 'iterative'
-
         # set analysis frame length
         if 'frame_len_sec' in kwargs:
             self._frame_len_sec = kwargs['frame_len_sec']
@@ -82,6 +75,9 @@ class F0Estimate:
         # Section 2.1 Spectrally whiten the signal to suppress timbral information
         Y = self._spectral_whitening(X, fs)
 
+        # perform iterative estimation of the fundamental frequencies in the audio file
+        self._iterative_est(Y)
+
     def _stft(self, x, fs):
         '''
         Calculate short time fourier transform on signal that is
@@ -95,6 +91,7 @@ class F0Estimate:
         # zero-pad to twice the length of the frame
         K = int(nextpow2(2*frame_len_samps))
         X = np.array([np.fft.fft(win*x[i:i+frame_len_samps], K) for i in xrange(0, len(x)-frame_len_samps, frame_len_samps)])
+
         return X
 
     def _spectral_whitening(self, X, fs, nu=0.33):
@@ -142,6 +139,9 @@ class F0Estimate:
         Y = gamma * X[:,:nyquist]
 
         return Y
+
+    def _iterative_est(self, Y):
+        pass
 
 if __name__ == '__main__':
     # parse command line arguments
