@@ -108,25 +108,33 @@ class F0Estimate:
         nu (float): amount of spectral whitening
         '''
 
-        K = X.shape[1]
+        T, K = X.shape
+        nyquist_freq = fs/2
+        nyquist_bins = K>>1
 
-        # calculate centre frequencies c_b (Hz) of the first 30 subbands on the critical-band scale
+        # calculate centre frequencies c_b (Hz) of subbands on the critical-band scale
         # c_b = 229 * (10^[(b+1)/21.4]-1)
-        # this will effectively suppress all frequencies above 6935.11Hz
         # calculate one subband below and above the range to get the head and tail
         # frequencies of the triangle windows
-        c = np.array([229*(10**((b+1)/21.4)-1) for b in range(0,32)])
+        c = []      # centre frequencies of critical-bands
+        b = 0       # critical band index
+        while True:
+            centre_freq = 229*(10**((b+1)/21.4)-1)
+            if centre_freq < nyquist_freq:
+                c.append(centre_freq)
+                b += 1
+            else:
+                break
+
+        c = np.asarray(c)
         c_bins = np.asarray(np.floor(c*K/fs) + 1, np.int)
 
-        # nyquist rate is half of the number of bins
-        nyquist = K>>1
-
         # subband compression coefficients -> gamma (K/2,)
-        gamma = np.zeros(nyquist)
+        gamma = np.zeros([T, nyquist_bins])
 
         # for each subband
-        for b in range(1,len(c_bins)-1):
-            H = np.zeros(nyquist)
+        for b in xrange(1,len(c_bins)-1):
+            H = np.zeros(nyquist_bins)
 
             left = c_bins[b-1]
             centre = c_bins[b]
@@ -136,14 +144,17 @@ class F0Estimate:
             H[left:centre+1] = np.linspace(0, 1, centre - left + 1)
             H[centre:right+1] = np.linspace(1, 0, right - centre + 1)
 
-            gamma[centre] = np.sqrt((2/K)*np.sum(H*(np.abs(X[:,:nyquist])**2)))**(nu-1)
+            # multiply by 2, since energy is symmetric about the nyquist rate
+            gamma[:,centre] = np.sqrt((2/K)*np.sum(H*(np.abs(X[:,:nyquist_bins])**2), axis=1))**(nu-1)
     
             # interpolate between the previous centre bin and the current centre bin
-            gamma[left:centre] = np.linspace(gamma[left], gamma[centre], centre - left)
+            # for each STFT frame
+            for t in xrange(T):
+                gamma[t,left:centre] = np.linspace(gamma[t,left], gamma[t,centre], centre - left)
 
         # calculate the whitened spectrum. Only need to store half the spectrum for analysis
         # since the bin energy is symmetric about the nyquist frequency
-        Y = gamma * X[:,:nyquist]
+        Y = gamma * X[:,:nyquist_bins]
 
         return Y
 
