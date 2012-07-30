@@ -179,7 +179,6 @@ class F0Estimate:
             # compute new saliences for the two block-halves
             for q in [q_best, Q]:
                 g = (tau_up[q] + self._beta) / (tau_low[q] + self._alpha)
-                g = (fs/tau_low[q] + self._alpha)/(fs/tau_up[q] + self._beta)
                 tau = (tau_low[q] + tau_up[q])/2
                 delta_tau = tau_up[q] - tau_low[q]
 
