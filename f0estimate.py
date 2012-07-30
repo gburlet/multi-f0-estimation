@@ -162,9 +162,8 @@ class F0Estimate:
         return f0_estimations
 
     def _search_smax(self, Y_t, fs, tau_prec=0.5):
-        # Q is the number of blocks
-        Q = 1
-        q_best = 0
+        Q = 0           # index of the new block
+        q_best = 0      # index of the best block
        
         tau_low = [round(fs/self._max_f0)] # in samples/cycle
         tau_up = [round(fs/self._min_f0)]  # in samples/cycle
@@ -175,10 +174,10 @@ class F0Estimate:
             Q += 1
             tau_low.append((tau_low[q_best] + tau_up[q_best])/2)
             tau_up.append(tau_up[q_best])
-            tau_up[q_best] = tau_low[Q-1]
+            tau_up[q_best] = tau_low[Q]
 
             # compute new saliences for the two block-halves
-            for q in [q_best, Q-1]:
+            for q in [q_best, Q]:
                 g = (tau_up[q] + self._beta) / (tau_low[q] + self._alpha)
                 g = (fs/tau_low[q] + self._alpha)/(fs/tau_up[q] + self._beta)
                 tau = (tau_low[q] + tau_up[q])/2
