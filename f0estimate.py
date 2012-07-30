@@ -166,7 +166,7 @@ class F0Estimate:
         for t in xrange(T):
             f0_frame_estimations = []
             # TODO: while there are still f0's to search for
-            tau_hat = self._search_smax(Y[t,:], fs, 1.0)
+            tau_hat = self._search_smax(Y[t,:], fs, tau_prec=1.0)
             f0_frame_estimations.append(fs/tau_hat)
             f0_estimations.append({'f0s': f0_frame_estimations, 'ts': t*self._frame_len_sec})
 
@@ -189,11 +189,7 @@ class F0Estimate:
 
             # compute new saliences for the two block-halves
             for q in [q_best, Q]:
-                g = (fs/tau_low[q] + self._alpha) / (fs/tau_up[q] + self._beta)
-                tau = (tau_low[q] + tau_up[q])/2
-                delta_tau = tau_up[q] - tau_low[q]
-
-                salience = self._calc_salience(Y_t, g, tau, delta_tau)
+                salience = self._calc_salience(Y_t, fs, tau_low[q], tau_up[q])
                 if q == q_best:
                     smax[q_best] = salience
                 else:
@@ -205,15 +201,19 @@ class F0Estimate:
 
         return tau_hat
 
-    def _calc_salience(self, Y_t, g, tau, delta_tau):
+    def _calc_salience(self, Y_t, fs, tau_low, tau_up):
         salience = 0
+
+        tau = (tau_low + tau_up)/2
+        delta_tau = tau_up - tau_low
 
         # calculate the number of harmonics under the nyquist frequency
         # the statement below is equivalent to floor((fs/2)/fo)
         num_harmonics = int(np.floor(tau/2))
 
         # calculate all harmonic weights
-        w_harmonics = g/(np.arange(num_harmonics)+1)
+        harmonics = np.arange(num_harmonics)+1
+        g = (fs/tau_low + self._alpha) / (harmonics*fs/tau_up + self._beta)
 
         # calculate lower and upper bounds of partial vicinity
         nyquist_bin = len(Y_t)
@@ -225,9 +225,9 @@ class F0Estimate:
         for m in xrange(1,num_harmonics+1):
             harmonic_lb = round(m*lb_vicinity)
             harmonic_ub = min(round(m*ub_vicinity), nyquist_bin)
-            max_vicinity = np.max(np.abs(Y_t[harmonic_lb:harmonic_ub+1]))
+            max_vicinity = np.max(np.abs(Y_t[harmonic_lb-1:harmonic_ub]))
 
-            salience += w_harmonics[m-1] * max_vicinity
+            salience += g[m-1] * max_vicinity
 
         return salience
 
