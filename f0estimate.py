@@ -166,7 +166,7 @@ class F0Estimate:
         for t in xrange(T):
             f0_frame_estimations = []
             # TODO: while there are still f0's to search for
-            tau_hat = self._search_smax(Y[t,:], fs, 0.5)
+            tau_hat = self._search_smax(Y[t,:], fs, 1.0)
             f0_frame_estimations.append(fs/tau_hat)
             f0_estimations.append({'f0s': f0_frame_estimations, 'ts': t*self._frame_len_sec})
 
@@ -189,7 +189,7 @@ class F0Estimate:
 
             # compute new saliences for the two block-halves
             for q in [q_best, Q]:
-                g = (tau_up[q] + self._beta) / (tau_low[q] + self._alpha)
+                g = (fs/tau_low[q] + self._alpha) / (fs/tau_up[q] + self._beta)
                 tau = (tau_low[q] + tau_up[q])/2
                 delta_tau = tau_up[q] - tau_low[q]
 
