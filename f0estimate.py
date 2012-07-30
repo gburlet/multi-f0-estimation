@@ -76,7 +76,7 @@ class F0Estimate:
         Y = self._spectral_whitening(X, fs)
 
         # perform iterative estimation of the fundamental periods in the audio file
-        f0_estimations = self._iterative_est(Y)
+        f0_estimations = self._iterative_est(Y, fs)
 
         return f0_estimations
 
@@ -157,43 +157,51 @@ class F0Estimate:
             # TODO: while there are still f0's to search for
             tau_hat = self._search_smax(Y[t,:], fs, 0.5)
             f0_frame_estimations.append(fs/tau_hat)
+            f0_estimations.append({'f0s': f0_frame_estimations, 'ts': t*self._frame_len_sec})
 
+        return f0_estimations
 
     def _search_smax(self, Y_t, fs, tau_prec=0.5):
         # Q is the number of blocks
         Q = 1
         q_best = 0
        
-        tau_low = [round(fs/self._min_f0)] # in samples/cycle
-        tau_up = [round(fs/self._max_f0)]  # in samples/cycle
-        smax = []
+        tau_low = [round(fs/self._max_f0)] # in samples/cycle
+        tau_up = [round(fs/self._min_f0)]  # in samples/cycle
+        smax = [0]
 
         while tau_up[q_best] - tau_low[q_best] > tau_prec:
             # split the best block and compute new limits
             Q += 1
             tau_low.append((tau_low[q_best] + tau_up[q_best])/2)
             tau_up.append(tau_up[q_best])
-            tau_up[q_best] = tau_low[-1]
+            tau_up[q_best] = tau_low[Q-1]
 
             # compute new saliences for the two block-halves
             for q in [q_best, Q-1]:
                 g = (tau_up[q] + self._beta) / (tau_low[q] + self._alpha)
+                g = (fs/tau_low[q] + self._alpha)/(fs/tau_up[q] + self._beta)
                 tau = (tau_low[q] + tau_up[q])/2
                 delta_tau = tau_up[q] - tau_low[q]
 
                 salience = self._calc_salience(Y_t, g, tau, delta_tau)
                 if q == q_best:
-                    smax[q] = salience
+                    smax[q_best] = salience
                 else:
                     smax.append(salience)
 
+            q_best = np.argmax(smax)
+
+        tau_hat = (tau_low[q_best] + tau_up[q_best])/2
+
+        return tau_hat
 
     def _calc_salience(self, Y_t, g, tau, delta_tau):
         salience = 0
 
         # calculate the number of harmonics under the nyquist frequency
         # the statement below is equivalent to floor((fs/2)/fo)
-        num_harmonics = np.floor(tau/2)
+        num_harmonics = int(np.floor(tau/2))
 
         # calculate all harmonic weights
         w_harmonics = g/(np.arange(num_harmonics)+1)
@@ -208,12 +216,11 @@ class F0Estimate:
         for m in xrange(1,num_harmonics+1):
             harmonic_lb = round(m*lb_vicinity)
             harmonic_ub = min(round(m*ub_vicinity), nyquist_bin)
-            max_vicinity = np.max(Y_t[harmonic_lb:harmonic_ub])
+            max_vicinity = np.max(np.abs(Y_t[harmonic_lb:harmonic_ub+1]))
 
             salience += w_harmonics[m-1] * max_vicinity
 
         return salience
-
 
 if __name__ == '__main__':
     # parse command line arguments
@@ -234,4 +241,5 @@ if __name__ == '__main__':
         raise ValueError('Ouput path must have the file extension .mei')
 
     freq_est = F0Estimate(input_path)
-    freq_est.gen_piano_roll(output_path)
+    f0_estimates = freq_est.gen_piano_roll(output_path)
+    print f0_estimates
