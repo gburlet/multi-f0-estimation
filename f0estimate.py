@@ -16,6 +16,84 @@ parser.add_argument('-v', '--verbose', help='increase output verbosity', action=
 
 class F0Estimate:
 
+    # sorted list of frequencies used to find the closest pitch 
+    # name and octave to the fundamental frequency estimate.
+    frequencies = np.array([
+        65.41, 69.3, 73.42, 77.78, 82.41, 87.31, 92.5, 98.0, 103.83, 110.0, 116.54, 123.47,
+        130.81, 138.59, 146.83, 155.56, 164.81, 174.61, 185.0, 196.0, 207.65, 220.0, 233.08, 246.94,
+        261.63, 277.18, 293.66, 311.13, 329.63, 349.23, 369.99, 392.0, 415.3, 440.0, 466.16, 493.88, 
+        523.25, 554.37, 587.33, 622.25, 659.26, 698.46, 739.99, 783.99, 830.61, 880.0, 923.33, 987.77,
+        1046.5, 1108.73, 1174.66, 1244.51, 1318.51, 1396.91, 1479.98, 1567.98, 1661.22, 1760.0, 1864.66, 1975.53, 
+        2093.0
+    ])
+
+    # sorted list of pitch name and octaves, which correspond to the
+    # frequency elements in the frequency list.
+    # for enharmonic notes, choose sharps instead of flats
+    notes = [
+        {'pname': 'C', 'oct': 2},
+        {'pname': 'C#', 'oct': 2},
+        {'pname': 'D', 'oct': 2},
+        {'pname': 'D#', 'oct': 2},
+        {'pname': 'E', 'oct': 2},
+        {'pname': 'F', 'oct': 2},
+        {'pname': 'F#', 'oct': 2},
+        {'pname': 'G', 'oct': 2},
+        {'pname': 'G#', 'oct': 2},
+        {'pname': 'A', 'oct': 2},
+        {'pname': 'A#', 'oct': 2},
+        {'pname': 'B', 'oct': 2},
+        {'pname': 'C', 'oct': 3},
+        {'pname': 'C#', 'oct': 3},
+        {'pname': 'D', 'oct': 3},
+        {'pname': 'D#', 'oct': 3},
+        {'pname': 'E', 'oct': 3},
+        {'pname': 'F', 'oct': 3},
+        {'pname': 'F#', 'oct': 3},
+        {'pname': 'G', 'oct': 3},
+        {'pname': 'G#', 'oct': 3},
+        {'pname': 'A', 'oct': 3},
+        {'pname': 'A#', 'oct': 3},
+        {'pname': 'B', 'oct': 3},
+        {'pname': 'C', 'oct': 4},
+        {'pname': 'C#', 'oct': 4},
+        {'pname': 'D', 'oct': 4},
+        {'pname': 'D#', 'oct': 4},
+        {'pname': 'E', 'oct': 4},
+        {'pname': 'F', 'oct': 4},
+        {'pname': 'F#', 'oct': 4},
+        {'pname': 'G', 'oct': 4},
+        {'pname': 'G#', 'oct': 4},
+        {'pname': 'A', 'oct': 4},
+        {'pname': 'A#', 'oct': 4},
+        {'pname': 'B', 'oct': 4},
+        {'pname': 'C', 'oct': 5},
+        {'pname': 'C#', 'oct': 5},
+        {'pname': 'D', 'oct': 5},
+        {'pname': 'D#', 'oct': 5},
+        {'pname': 'E', 'oct': 5},
+        {'pname': 'F', 'oct': 5},
+        {'pname': 'F#', 'oct': 5},
+        {'pname': 'G', 'oct': 5},
+        {'pname': 'G#', 'oct': 5},
+        {'pname': 'A', 'oct': 5},
+        {'pname': 'A#', 'oct': 5},
+        {'pname': 'B', 'oct': 5},
+        {'pname': 'C', 'oct': 6},
+        {'pname': 'C#', 'oct': 6},
+        {'pname': 'D', 'oct': 6},
+        {'pname': 'D#', 'oct': 6},
+        {'pname': 'E', 'oct': 6},
+        {'pname': 'F', 'oct': 6},
+        {'pname': 'F#', 'oct': 6},
+        {'pname': 'G', 'oct': 6},
+        {'pname': 'G#', 'oct': 6},
+        {'pname': 'A', 'oct': 6},
+        {'pname': 'A#', 'oct': 6},
+        {'pname': 'B', 'oct': 6},
+        {'pname': 'C', 'oct': 7}
+    ]
+
     def __init__(self, **kwargs):
         # set maximum number of simultaneous notes
         if 'max_poly' in kwargs:
@@ -86,8 +164,17 @@ class F0Estimate:
 
         # perform iterative estimation of the fundamental periods in the audio file
         f0_estimations = self._iterative_est(Y, fs)
+        
+        # get notes which correspond to these frequency estimates
+        notes = []
+        for frame_ests in f0_estimations:
+            notes.append([self._freq_to_note(f) for f in frame_ests])
 
-        return f0_estimations
+        return f0_estimations, notes
+
+    def _freq_to_note(self, freq):
+        i_note = np.argmin(np.abs(F0Estimate.frequencies-freq))
+        return F0Estimate.notes[i_note]
 
     def _stft(self, x, fs):
         '''
@@ -330,6 +417,6 @@ if __name__ == '__main__':
     if output_ext != '.mei':
         raise ValueError('Ouput path must have the file extension .mei')
 
-    freq_est = F0Estimate(max_poly=2)
-    f0_estimates = freq_est.estimate_f0s(input_path)
-    print f0_estimates
+    freq_est = F0Estimate(max_poly=1)
+    f0_estimates, notes = freq_est.estimate_f0s(input_path)
+    print notes
