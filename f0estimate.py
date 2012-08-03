@@ -16,12 +16,7 @@ parser.add_argument('-v', '--verbose', help='increase output verbosity', action=
 
 class F0Estimate:
 
-    def __init__(self, audio_path, **kwargs):
-        if not os.path.exists(audio_path):
-            raise ValueError('Invalid audio path')
-
-        self.audio_path = audio_path
-
+    def __init__(self, **kwargs):
         # set maximum number of simultaneous notes
         if 'max_poly' in kwargs:
             self._max_poly = kwargs['max_poly']
@@ -73,8 +68,11 @@ class F0Estimate:
             self._beta = 320
             self._d = 0.89
 
-    def gen_piano_roll(self, out_path):
-        x, fs, _ = wavread(self.audio_path)
+    def estimate_f0s(self, audio_path):
+        if not os.path.exists(audio_path):
+            raise ValueError('Invalid audio path')
+
+        x, fs, _ = wavread(audio_path)
 
         # make x mono if stereo
         if x.ndim > 1:
@@ -332,6 +330,6 @@ if __name__ == '__main__':
     if output_ext != '.mei':
         raise ValueError('Ouput path must have the file extension .mei')
 
-    freq_est = F0Estimate(input_path, partial_width=20)
-    f0_estimates = freq_est.gen_piano_roll(output_path)
+    freq_est = F0Estimate(max_poly=2)
+    f0_estimates = freq_est.estimate_f0s(input_path)
     print f0_estimates
