@@ -6,6 +6,7 @@ from scikits.audiolab import wavread
 from scipy.signal import get_window
 
 from utilities import nextpow2
+from pymei import MeiDocument, MeiElement, XmlExport
 
 # set up command line argument structure
 parser = argparse.ArgumentParser(description='Estimate the pitches in an audio file.')
@@ -52,6 +53,16 @@ class F0Estimate:
         else:
             self._window_func = 'hanning'
 
+        # set the bin width of the estimated spectrum of the partial
+        # of the detected fundamental
+        if 'partial_width' in kwargs:
+            self._partial_width = kwargs['partial_width']
+        else:
+            self._partial_width = 10
+
+        '''
+        Derived parameters
+        '''
         # these parameter values are from the 2006 paper
         if self._frame_len_sec == 0.046:
             self._alpha = 27
@@ -110,7 +121,7 @@ class F0Estimate:
 
         T, K = X.shape
         nyquist_freq = fs/2
-        nyquist_bins = K>>1
+        nyquist_bin = K>>1
 
         # calculate centre frequencies c_b (Hz) of subbands on the critical-band scale
         # c_b = 229 * (10^[(b+1)/21.4]-1)
@@ -127,14 +138,14 @@ class F0Estimate:
                 break
 
         c = np.asarray(c)
-        c_bins = np.asarray(np.floor(c*K/fs) + 1, np.int)
+        c_bins = np.asarray(np.floor(c*K/fs), np.int)
 
         # subband compression coefficients -> gamma (K/2,)
-        gamma = np.zeros([T, nyquist_bins])
+        gamma = np.zeros([T, nyquist_bin])
 
         # for each subband
         for b in xrange(1,len(c_bins)-1):
-            H = np.zeros(nyquist_bins)
+            H = np.zeros(nyquist_bin)
 
             left = c_bins[b-1]
             centre = c_bins[b]
@@ -145,7 +156,7 @@ class F0Estimate:
             H[centre:right+1] = np.linspace(1, 0, right - centre + 1)
 
             # multiply by 2, since energy is symmetric about the nyquist rate
-            gamma[:,centre] = np.sqrt((2/K)*np.sum(H*(np.abs(X[:,:nyquist_bins])**2), axis=1))**(nu-1)
+            gamma[:,centre] = np.sqrt((2/K)*np.sum(H*(np.abs(X[:,:nyquist_bin])**2), axis=1))**(nu-1)
     
             # interpolate between the previous centre bin and the current centre bin
             # for each STFT frame
@@ -154,7 +165,7 @@ class F0Estimate:
 
         # calculate the whitened spectrum. Only need to store half the spectrum for analysis
         # since the bin energy is symmetric about the nyquist frequency
-        Y = gamma * X[:,:nyquist_bins]
+        Y = gamma * X[:,:nyquist_bin]
 
         return Y
 
@@ -164,15 +175,49 @@ class F0Estimate:
         T = Y.shape[0]
         # for each STFT frame
         for t in xrange(T):
+            # residual magnitude spectrum of the analysis frame
+            Y_t_R = np.abs(Y[t,:])
+
+            # fundamental frequency estimates for the current frame
             f0_frame_estimations = []
-            # TODO: while there are still f0's to search for
-            tau_hat = self._search_smax(Y[t,:], fs, tau_prec=1.0)
-            f0_frame_estimations.append(fs/tau_hat)
-            f0_estimations.append({'f0s': f0_frame_estimations, 'ts': t*self._frame_len_sec})
+
+            # keep track of saliences of period estimates in this frame
+            S = -1
+            salience_hats = []
+
+            # while there are fundamentals to estimate and the maximum number
+            # of polyphony is not exceeded
+            while len(salience_hats) < self._max_poly:
+                tau_hat, salience_hat, Y_t_D = self._search_smax(Y_t_R, fs, tau_prec=0.5)
+                salience_hats.append(salience_hat)
+
+                f0_frame_estimations.append(fs/tau_hat)
+                f0_estimations.append(f0_frame_estimations)
+
+                cur_S = self._calc_S(salience_hats)
+                if cur_S <= S:
+                    break
+                else:
+                    # subtract the detected spectrum from the residual spectrum
+                    Y_t_R -= self._d*Y_t_D
+                    Y_t_R[Y_t_R < 0] = 0
+
+                    S = cur_S
 
         return f0_estimations
 
-    def _search_smax(self, Y_t, fs, tau_prec=0.5):
+    def _calc_S(self, salience_hats, gamma=0.7):
+        '''
+        Calculate a normalized sum of saliences to determine if searching
+        for more fundamentals in the spectrum is necessary.
+        '''
+
+        j = len(salience_hats)
+        S = sum(salience_hats)/(j**gamma)
+
+        return S
+
+    def _search_smax(self, Y_t_R, fs, tau_prec=1.0):
         Q = 0           # index of the new block
         q_best = 0      # index of the best block
        
@@ -189,7 +234,7 @@ class F0Estimate:
 
             # compute new saliences for the two block-halves
             for q in [q_best, Q]:
-                salience = self._calc_salience(Y_t, fs, tau_low[q], tau_up[q])
+                salience, _ = self._calc_salience(Y_t_R, fs, tau_low[q], tau_up[q])
                 if q == q_best:
                     smax[q_best] = salience
                 else:
@@ -197,11 +242,17 @@ class F0Estimate:
 
             q_best = np.argmax(smax)
 
+        # estimated fundamental period of the frame
         tau_hat = (tau_low[q_best] + tau_up[q_best])/2
 
-        return tau_hat
+        # calculate the spectrum of the detected fundamental period and harmonics
+        salience_hat, harmonics = self._calc_salience(Y_t_R, fs, tau_low[q_best], tau_up[q_best])
+        K = len(Y_t_R)<<1
+        Y_t_D = self._calc_harmonic_spec(fs, K, harmonics)
 
-    def _calc_salience(self, Y_t, fs, tau_low, tau_up):
+        return tau_hat, salience_hat, Y_t_D
+
+    def _calc_salience(self, Y_t_R, fs, tau_low, tau_up):
         salience = 0
 
         tau = (tau_low + tau_up)/2
@@ -216,20 +267,52 @@ class F0Estimate:
         g = (fs/tau_low + self._alpha) / (harmonics*fs/tau_up + self._beta)
 
         # calculate lower and upper bounds of partial vicinity
-        nyquist_bin = len(Y_t)
+        nyquist_bin = len(Y_t_R)
         K = nyquist_bin<<1
         lb_vicinity = K/(tau + delta_tau/2)
         ub_vicinity = K/(tau - delta_tau/2)
 
         # for each harmonic
+        harmonics = []
         for m in xrange(1,num_harmonics+1):
             harmonic_lb = round(m*lb_vicinity)
             harmonic_ub = min(round(m*ub_vicinity), nyquist_bin)
-            max_vicinity = np.max(np.abs(Y_t[harmonic_lb-1:harmonic_ub]))
+            harmonic_bin = np.argmax(Y_t_R[harmonic_lb-1:harmonic_ub]) + harmonic_lb-1
+            harmonic_amp = Y_t_R[harmonic_bin]
+            w_harmonic_amp = g[m-1] * harmonic_amp
 
-            salience += g[m-1] * max_vicinity
+            # save the properties of this fundamental period and harmonics
+            harmonics.append({'bin': harmonic_bin, 'amp': w_harmonic_amp})
 
-        return salience
+            salience += w_harmonic_amp
+
+        return salience, harmonics
+
+    def _calc_harmonic_spec(self, fs, K, harmonics):
+        nyquist_bin = K>>1
+        # initialize spectrum of detected harmonics
+        Y_t_D = np.zeros(nyquist_bin)
+
+        # calculate the partial spectrum for each harmonic
+        # Klapuri PhD Thesis, page 62 and (Klapuri, 2006) Section 2.5
+        # Even with these sources, the algorithm for estimating the 
+        # spectrum of the fundamental and partials is rather unclear.
+        frame_len_samps = int(fs * self._frame_len_sec)
+        win = get_window(self._window_func, frame_len_samps) 
+        window_spec = np.abs(np.fft.fft(win, K))
+        partial_spectrum = np.hstack((window_spec[self._partial_width::-1],
+                                    window_spec[1:self._partial_width+1]))
+        # normalize the spectrum
+        partial_spectrum /= np.max(partial_spectrum)
+
+        for h in harmonics:
+            h_lb = max(0, h['bin']-self._partial_width)
+            h_ub = min(nyquist_bin-1, h['bin']+self._partial_width)
+            
+            # translate the spectrum of the window function to the position of the harmonic
+            Y_t_D[h_lb:h_ub+1] = h['amp']*partial_spectrum[h_lb-h['bin']+self._partial_width:h_ub-h['bin']+self._partial_width+1]
+
+        return Y_t_D
 
 if __name__ == '__main__':
     # parse command line arguments
@@ -249,6 +332,6 @@ if __name__ == '__main__':
     if output_ext != '.mei':
         raise ValueError('Ouput path must have the file extension .mei')
 
-    freq_est = F0Estimate(input_path)
+    freq_est = F0Estimate(input_path, partial_width=20)
     f0_estimates = freq_est.gen_piano_roll(output_path)
     print f0_estimates
