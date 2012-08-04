@@ -399,6 +399,26 @@ class F0Estimate:
 
         return Y_t_D
 
+    def collapse_notes(self, notes):
+        '''
+        Collapse consecutive notes (notes that span more than
+        one analysis frame).
+        '''
+        
+        notes_c = []
+        prev_frame = []
+        for frame_n in notes:
+            # if polyphony is different, add to notes
+            if len(frame_n) != len(prev_frame):
+                notes_c.append(frame_n)
+            elif not np.all([n1['pname'] == n2['pname'] and n1['oct'] == n2['oct'] 
+                            for n1,n2 in zip(prev_frame, frame_n)]):
+                notes_c.append(frame_n)
+
+            prev_frame = frame_n
+
+        return notes_c
+        
 if __name__ == '__main__':
     # parse command line arguments
     args = parser.parse_args()
@@ -419,4 +439,4 @@ if __name__ == '__main__':
 
     freq_est = F0Estimate(max_poly=1)
     f0_estimates, notes = freq_est.estimate_f0s(input_path)
-    print notes
+    notes_c = freq_est.collapse_notes(notes)
