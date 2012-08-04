@@ -418,7 +418,98 @@ class F0Estimate:
             prev_frame = frame_n
 
         return notes_c
+   
+    def write_mei(self, notes, output_path=None):
+        # begin constructing mei document
+        meidoc = MeiDocument()
+        mei = MeiElement('mei')
+        meidoc.setRootElement(mei)
+        mei_head = MeiElement('meiHead')
+        mei.addChild(mei_head)
+
+        music = MeiElement('music')
+        body = MeiElement('body')
+        mdiv = MeiElement('mdiv')
+        score = MeiElement('score')
+        score_def = MeiElement('scoreDef')
+
+        # assume 4/4 time signature
+        meter_count = 4
+        meter_unit = 4
+        score_def.addAttribute('meter.count', str(meter_count))
+        score_def.addAttribute('meter.unit', str(meter_unit))
         
+        staff_def = MeiElement('staffDef')
+        staff_def.addAttribute('n', '1')
+        staff_def.addAttribute('label.full', 'Electric Guitar')
+        staff_def.addAttribute('clef.shape', 'TAB')
+
+        instr_def = MeiElement('instrDef')
+        instr_def.addAttribute('n', 'Electric_Guitar')
+        instr_def.addAttribute('midi.channel', '1')
+        instr_def.addAttribute('midi.instrnum', '28')
+
+        mei.addChild(music)
+        music.addChild(body)
+        body.addChild(mdiv)
+        mdiv.addChild(score)
+        score.addChild(score_def)
+        score_def.addChild(staff_def)
+        staff_def.addChild(instr_def)
+
+        section = MeiElement('section')
+        score.addChild(section)
+        # another score def
+        score_def = MeiElement('scoreDef')
+        score_def.addAttribute('meter.count', str(meter_count))
+        score_def.addAttribute('meter.unit', str(meter_unit))
+        section.addChild(score_def)
+        
+        # start writing pitches to file
+        note_container = None
+        for i, frame_n in enumerate(notes):
+            if i % meter_count == 0:
+                measure = MeiElement('measure')
+                measure.addAttribute('n', str(int(i/meter_count + 1)))
+                staff = MeiElement('staff')
+                staff.addAttribute('n', '1')
+                layer = MeiElement('layer')
+                layer.addAttribute('n', '1')
+                section.addChild(measure)
+                measure.addChild(staff)
+                staff.addChild(layer)
+                note_container = layer
+
+            if len(frame_n) > 1:
+                chord = MeiElement('chord')
+                for n in frame_n:
+                    note = MeiElement('note')
+                    pname = n['pname'][0].upper()
+                    note.addAttribute('pname', pname)
+                    note.addAttribute('oct', str(n['oct']))
+                    if len(n['pname']) > 1 and n['pname'][1] == '#':
+                        # there is an accidental
+                        note.addAttribute('accid.ges', 's')
+                    note.addAttribute('dur', str(meter_unit))
+                    chord.addChild(note)
+                note_container.addChild(chord)
+            else:
+                n = frame_n[0]
+                note = MeiElement('note')
+                pname = n['pname'][0].upper()
+                note.addAttribute('pname', pname)
+                note.addAttribute('oct', str(n['oct']))
+                if len(n['pname']) > 1 and n['pname'][1] == '#':
+                    # there is an accidental
+                    note.addAttribute('accid.ges', 's')
+                note.addAttribute('dur', str(meter_unit))
+                note_container.addChild(note)
+
+        if output_path is not None:
+            XmlExport.meiDocumentToFile(meidoc, output_path)
+        else:
+            return XmlExport.meiDocumentToText(self.meidoc)
+
 if __name__ == '__main__':
     # parse command line arguments
     args = parser.parse_args()
@@ -440,3 +531,4 @@ if __name__ == '__main__':
     freq_est = F0Estimate(max_poly=1)
     f0_estimates, notes = freq_est.estimate_f0s(input_path)
     notes_c = freq_est.collapse_notes(notes)
+    freq_est.write_mei(notes_c, output_path)
