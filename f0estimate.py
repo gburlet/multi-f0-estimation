@@ -18,6 +18,7 @@ class F0Estimate:
 
     # sorted list of frequencies used to find the closest pitch 
     # name and octave to the fundamental frequency estimate.
+    # frequencies range from 65Hz to 2100Hz.
     frequencies = np.array([
         65.41, 69.3, 73.42, 77.78, 82.41, 87.31, 92.5, 98.0, 103.83, 110.0, 116.54, 123.47,
         130.81, 138.59, 146.83, 155.56, 164.81, 174.61, 185.0, 196.0, 207.65, 220.0, 233.08, 246.94,
@@ -188,7 +189,8 @@ class F0Estimate:
 
         # zero-pad to twice the length of the frame
         K = int(nextpow2(2*frame_len_samps))
-        X = np.array([np.fft.fft(win*x[i:i+frame_len_samps], K) for i in xrange(0, len(x)-frame_len_samps, frame_len_samps)])
+        X = np.array([np.fft.fft(win*x[i:i+frame_len_samps], K) 
+                     for i in xrange(0, len(x)-frame_len_samps, frame_len_samps)])
 
         return X
 
@@ -408,6 +410,11 @@ class F0Estimate:
         notes_c = []
         prev_frame = []
         for frame_n in notes:
+            # remove identical notes
+            if len(frame_n) > 1:
+                n_set = set([n['pname']+str(n['oct']) for n in frame_n])
+                frame_n = [{'pname': n[:-1], 'oct': int(n[-1])} for n in n_set]
+            
             # if polyphony is different, add to notes
             if len(frame_n) != len(prev_frame):
                 notes_c.append(frame_n)
@@ -528,7 +535,7 @@ if __name__ == '__main__':
     if output_ext != '.mei':
         raise ValueError('Ouput path must have the file extension .mei')
 
-    freq_est = F0Estimate(max_poly=1)
+    freq_est = F0Estimate(max_poly=6)
     f0_estimates, notes = freq_est.estimate_f0s(input_path)
     notes_c = freq_est.collapse_notes(notes)
     freq_est.write_mei(notes_c, output_path)
